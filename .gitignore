@@ -6,3 +6,6 @@ venv/
 documents/*.txt
 !documents/.gitkeep
 data/workspaces/
+*.egg-info/
+build/
+dist/

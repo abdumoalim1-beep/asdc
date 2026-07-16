@@ -56,12 +56,34 @@ tests/            لكل طبقة + agent.py (حلقة tool-calling برد نم�
 
 ## تشغيل المنصة (الواجهة الأساسية)
 
+المشروع مبني بـ`src/` layout — لازم يُثبَّت كـ package محلي (`pip install -e .`)
+حتى `import asdc` يشتغل بدون ما تحتاج تضبط `PYTHONPATH` يدويًا كل جلسة طرفية.
+
+**macOS / Linux:**
 ```bash
-pip install -r requirements.txt
+pip install -e .
 export OPENAI_API_KEY=sk-...
 export ASDC_MODEL=gpt-5-mini   # اختياري، هذا الافتراضي، ويدعم tool calling
 uvicorn asdc.server:app --reload
 ```
+
+**Windows (PowerShell):**
+```powershell
+pip install -e .
+$env:OPENAI_API_KEY = "sk-..."
+uvicorn asdc.server:app --reload
+```
+
+**Windows (Command Prompt):**
+```cmd
+pip install -e .
+set OPENAI_API_KEY=sk-...
+uvicorn asdc.server:app --reload
+```
+
+لو `uvicorn` طلع "not recognized"، جرب `python -m uvicorn asdc.server:app --reload`
+بدالها. متغيرات البيئة (`set`/`$env:`/`export`) تنضبط للجلسة الحالية بس — أعد
+ضبطها كل مرة تفتح ترمنال جديد.
 
 افتح `http://127.0.0.1:8000`. أول زيارة تنشئ مساحة عمل جديدة فاضية تمامًا
 تلقائيًا (`POST /api/workspaces`)، والمساعد يرحّب ويطلب منك تعرّفه بنشاطك —
@@ -72,11 +94,17 @@ uvicorn asdc.server:app --reload
 **حفظ المحادثة:** كل مساحة عمل تحفظ محادثتها كاملة (`conversation.json`) —
 لو رجعت لنفس المتصفح، `localStorage` يتذكر مساحة عملك وتكمل من وين وقفت.
 
+**نشر المنصة على استضافة حقيقية:** التخزين حاليًا ملفات محلية (`data/workspaces/`)،
+فمنصات serverless بحتة (زي Vercel functions) ما تصلح مباشرة — القرص عندها غير
+دائم بين الطلبات. تشتغل بدون أي تعديل على منصات فيها قرص/عملية دائمة (Render,
+Railway, Fly.io, أو أي VPS): شغّل نفس أمر `uvicorn` كخدمة دائمة.
+
 ## تشغيل المسار القديم (CLI، مصنّف نية واحدة)
 
 لسا شغّال، لأغراض المقارنة والاختبار، على بيانات تجريبية ثابتة (`data/`):
 
 ```bash
+pip install -e .
 export OPENAI_API_KEY=sk-...
 python -m asdc.cli
 python -m asdc.cli --batch تعديلات.txt   # قائمة تعديلات دفعة وحدة
