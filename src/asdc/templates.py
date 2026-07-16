@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from . import docx_template
 from .store import Entity
 
 LOCKED_STATUSES = {"موقّع", "مُرسل"}
@@ -25,23 +26,48 @@ class Template:
     name: str
     applies_to: str
     fields: list[str]
-    body: str
+    body: Optional[str] = None
+    source_path: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "applies_to": self.applies_to,
+            "fields": self.fields,
+            "body": self.body,
+            "source_path": self.source_path,
+        }
 
 
 class TemplateStore:
-    def __init__(self, templates: list[Template]):
+    def __init__(self, templates: list[Template], path: Optional[Path] = None):
         self._templates: dict[str, Template] = {t.name: t for t in templates}
+        self._path = path
 
     @classmethod
     def from_file(cls, path: Path) -> "TemplateStore":
         raw = json.loads(path.read_text(encoding="utf-8"))
-        return cls([Template(**item) for item in raw])
+        return cls([Template(**item) for item in raw], path=path)
+
+    def save(self, path: Optional[Path] = None) -> None:
+        target = path or self._path
+        if target is None:
+            raise ValueError("no path configured for this store")
+        target.write_text(
+            json.dumps([t.to_dict() for t in self._templates.values()],
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def get(self, name: str) -> Optional[Template]:
         return self._templates.get(name)
 
     def names(self) -> list[str]:
         return list(self._templates.keys())
+
+    def add(self, template: Template) -> Template:
+        self._templates[template.name] = template
+        return template
 
 
 @dataclass
@@ -82,7 +108,14 @@ def generate_document(
     documents_dir: Path,
     doc_id_factory: Optional[Any] = None,
 ) -> GeneratedDocument:
-    content, missing = render_template(template, entity)
+    is_docx = template.source_path is not None
+    rendered_doc = None
+    content = ""
+    if is_docx:
+        values = {"الاسم": entity.name, **entity.fields}
+        rendered_doc, missing = docx_template.build_rendered_docx(Path(template.source_path), values)
+    else:
+        content, missing = render_template(template, entity)
 
     was_locked = entity.has_locked_document()
     superseded_status = None
@@ -104,7 +137,12 @@ def generate_document(
         # untouched (rule 5) - we append, never overwrite.
         entity.documents.append(record)
         documents_dir.mkdir(parents=True, exist_ok=True)
-        (documents_dir / f"{doc_id}.txt").write_text(content, encoding="utf-8")
+        if is_docx:
+            output_path = documents_dir / f"{doc_id}.docx"
+            rendered_doc.save(str(output_path))
+            content = f"[docx generated: {output_path.name}]"
+        else:
+            (documents_dir / f"{doc_id}.txt").write_text(content, encoding="utf-8")
 
     return GeneratedDocument(
         id=doc_id,
