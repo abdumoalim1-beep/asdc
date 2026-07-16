@@ -79,7 +79,6 @@ def openai_completion_fn(model: str = DEFAULT_MODEL, api_key: Optional[str] = No
     def _complete(system_prompt: str, user_payload: str) -> str:
         response = client.chat.completions.create(
             model=model,
-            temperature=0,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_payload},
