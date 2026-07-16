@@ -33,7 +33,7 @@ def execute(
     templates: TemplateStore,
     documents_dir: Path,
 ) -> ExecutionResult:
-    if response.intent in ("ambiguous", "unsupported"):
+    if response.intent in ("ambiguous", "unsupported", "chat"):
         return ExecutionResult(intent=response.intent, human_message=response.human_message)
 
     result = validate(response, entities, templates)

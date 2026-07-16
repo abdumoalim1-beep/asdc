@@ -123,3 +123,11 @@ def test_unsupported_executes_as_noop(entities, templates, documents_dir):
     response = _response(intent="unsupported", human_message="خارج نطاقي.")
     result = execute(response, entities, templates, documents_dir)
     assert result.detail == {}
+
+
+def test_chat_executes_as_noop_without_touching_entities(entities, templates, documents_dir):
+    before = [e.to_dict() for e in entities.all()]
+    response = _response(intent="chat", human_message="مساحة عملك فيها عميلان ومنتج واحد ومؤثران.")
+    result = execute(response, entities, templates, documents_dir)
+    assert result.detail == {}
+    assert [e.to_dict() for e in entities.all()] == before

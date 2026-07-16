@@ -92,3 +92,9 @@ def test_ambiguous_always_ok_without_touching_data(entities, templates):
     response = _response(intent="ambiguous", clarification_needed="أي عميل تقصد؟")
     result = validate(response, entities, templates)
     assert result.ok
+
+
+def test_chat_always_ok_without_touching_data(entities, templates):
+    response = _response(intent="chat", human_message="مساحة عملك فيها عميلان ومنتج واحد.")
+    result = validate(response, entities, templates)
+    assert result.ok

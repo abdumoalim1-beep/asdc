@@ -23,7 +23,7 @@ class ValidationResult:
 def validate(response: NLUResponse, entities: EntityStore, templates: TemplateStore) -> ValidationResult:
     errors: list[str] = []
 
-    if response.intent in ("ambiguous", "unsupported"):
+    if response.intent in ("ambiguous", "unsupported", "chat"):
         # Nothing to execute; the model already deferred to the user.
         return ValidationResult(ok=True)
 

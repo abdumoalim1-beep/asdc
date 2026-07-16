@@ -39,6 +39,23 @@ def test_ambiguous_without_clarification_is_rejected():
         )
 
 
+def test_chat_intent_does_not_require_clarification():
+    response = NLUResponse.model_validate(
+        {
+            "intent": "chat",
+            "confidence": "high",
+            "entity_type": None,
+            "entity_reference": None,
+            "matched_entity_id": None,
+            "fields_to_update": {},
+            "template_requested": None,
+            "clarification_needed": None,
+            "human_message": "مساحة عملك فيها عميلان ومنتج واحد ومؤثران.",
+        }
+    )
+    assert response.intent == "chat"
+
+
 def test_unknown_intent_is_rejected():
     with pytest.raises(ValidationError):
         NLUResponse.model_validate(

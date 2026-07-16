@@ -15,6 +15,7 @@ Intent = Literal[
     "update_field",
     "generate_document",
     "query",
+    "chat",
     "ambiguous",
     "unsupported",
 ]
