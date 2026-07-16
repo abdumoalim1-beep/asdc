@@ -1,10 +1,14 @@
-"""HTTP layer over the real engine: same classify -> validate -> execute
-pipeline as cli.py, just exposed as JSON endpoints for the web UI instead of
-a REPL. No behavior lives here that isn't already in llm_client/validator/
-executor - this module only translates between HTTP and those calls.
+"""HTTP layer over the tool-calling agent (agent.py).
+
+Every workspace is isolated (workspace.py): a brand-new visitor gets a
+brand-new, completely empty workspace and onboards by talking to the
+assistant - no forms, no pre-seeded demo data. All the safety rules still
+live in validator.py/executor.py, unchanged; this module only wires HTTP
+around agent.run_turn and the workspace registry.
 
 Run with: uvicorn asdc.server:app --reload
-Requires OPENAI_API_KEY in the environment.
+Requires OPENAI_API_KEY in the environment for actual chat turns (browsing
+the static UI and creating workspaces works without it).
 """
 from __future__ import annotations
 
@@ -14,45 +18,38 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .executor import ExecutionRefused, execute
-from .llm_client import DEFAULT_MODEL, LLMClient, MalformedModelResponse, openai_completion_fn
+from . import agent
 from .register_template import TemplateRegistrationError, register_docx_template
-from .store import EntityStore
-from .templates import TemplateStore
+from .workspace import WorkspaceNotFound, WorkspaceRegistry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = REPO_ROOT / "data"
-DOCUMENTS_DIR = REPO_ROOT / "documents"
-TEMPLATES_DIR = DATA_DIR / "templates"
 WEB_DIR = REPO_ROOT / "web"
-WORKSPACE_NAME = "الوكالة الرئيسية"
 
 app = FastAPI(title="asdc")
+registry = WorkspaceRegistry(DATA_DIR / "workspaces")
 
-entities = EntityStore.from_file(DATA_DIR / "workspace_entities.json")
-templates = TemplateStore.from_file(DATA_DIR / "available_templates.json")
-_client: Optional[LLMClient] = None
-
-
-def get_client() -> LLMClient:
-    global _client
-    if _client is None:
-        model = os.environ.get("ASDC_MODEL", DEFAULT_MODEL)
-        _client = LLMClient(openai_completion_fn(model=model))
-    return _client
+_model_call: Optional[agent.ModelCallFn] = None
 
 
-def lazy_openai_completion_fn(model: str):
-    """Defer building the OpenAI client until a call is actually made.
+def get_model_call() -> agent.ModelCallFn:
+    global _model_call
+    if _model_call is None:
+        model = os.environ.get("ASDC_MODEL", agent.DEFAULT_MODEL)
+        _model_call = agent.openai_tool_model(model=model)
+    return _model_call
 
-    register_docx_template only invokes completion_fn when a template has no
-    explicit {{field}} placeholders - most uploads won't need it, so this
-    avoids requiring OPENAI_API_KEY for those.
-    """
+
+def _lazy_completion_fn(model: str):
+    """CompletionFn-shaped lazy wrapper for register_docx_template's LLM
+    auto-detect path - only builds an OpenAI client if actually called."""
+    from .llm_client import openai_completion_fn
+
     built: dict = {}
 
     def _call(system_prompt: str, payload: str) -> str:
@@ -63,29 +60,48 @@ def lazy_openai_completion_fn(model: str):
     return _call
 
 
-def template_context() -> list[dict]:
-    return [
-        {"name": t.name, "applies_to": t.applies_to, "fields": t.fields}
-        for t in (templates.get(n) for n in templates.names())
-    ]
+@app.exception_handler(WorkspaceNotFound)
+def _workspace_not_found_handler(request: Request, exc: WorkspaceNotFound) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": f"workspace not found: {exc}"})
+
+
+class CreateWorkspaceRequest(BaseModel):
+    name: str = "مساحة عمل جديدة"
+
+
+class WorkspaceOut(BaseModel):
+    id: str
+    name: str
+    created_at: str
 
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict[str, str]] = []
 
 
-class ChatResponse(BaseModel):
-    intent: str
-    confidence: str = "high"
-    human_message: str
-    clarification_needed: Optional[str] = None
+class ActionOut(BaseModel):
+    tool: str
+    ok: bool
     detail: dict = {}
     error: Optional[str] = None
 
 
-@app.get("/api/state")
-def state() -> dict:
+class ChatResponse(BaseModel):
+    reply: str
+    actions: list[ActionOut]
+
+
+@app.post("/api/workspaces", response_model=WorkspaceOut)
+def create_workspace(req: CreateWorkspaceRequest) -> WorkspaceOut:
+    info = registry.create(req.name)
+    return WorkspaceOut(id=info.id, name=info.name, created_at=info.created_at)
+
+
+@app.get("/api/workspaces/{workspace_id}/state")
+def workspace_state(workspace_id: str) -> dict:
+    info = registry.require(workspace_id)
+    entities, _templates = registry.load_stores(workspace_id)
+
     stats: dict[str, int] = {}
     for e in entities.all():
         stats[e.type] = stats.get(e.type, 0) + 1
@@ -105,71 +121,63 @@ def state() -> dict:
             )
     files.sort(key=lambda d: d["id"], reverse=True)
 
-    return {"workspace_name": WORKSPACE_NAME, "stats": stats, "files": files}
+    return {
+        "workspace_id": info.id,
+        "workspace_name": info.name,
+        "is_new": not entities.all() and not files,
+        "stats": stats,
+        "files": files,
+    }
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
-    try:
-        response = get_client().classify(
-            req.message,
-            [e.to_dict() for e in entities.all()],
-            template_context(),
-            req.history,
-        )
-    except MalformedModelResponse as exc:
-        return ChatResponse(
-            intent="error", human_message="صار خطأ بفهم رد النموذج، جرّب مرة ثانية.", error=str(exc)
-        )
+@app.post("/api/workspaces/{workspace_id}/chat", response_model=ChatResponse)
+def chat(workspace_id: str, req: ChatRequest) -> ChatResponse:
+    registry.require(workspace_id)
+    entities, templates = registry.load_stores(workspace_id)
+    history = registry.load_conversation(workspace_id)
+    documents_dir = registry.path(workspace_id) / "documents"
 
-    if response.intent in ("ambiguous", "unsupported", "chat"):
-        return ChatResponse(
-            intent=response.intent,
-            confidence=response.confidence,
-            human_message=response.human_message,
-            clarification_needed=response.clarification_needed,
-        )
+    result = agent.run_turn(
+        get_model_call(), entities, templates, documents_dir, history, req.message
+    )
+    registry.save_conversation(workspace_id, result.messages)
 
-    try:
-        result = execute(response, entities, templates, DOCUMENTS_DIR)
-    except ExecutionRefused as exc:
-        return ChatResponse(
-            intent="refused",
-            confidence=response.confidence,
-            human_message=response.human_message,
-            error=str(exc),
-        )
-
-    entities.save()
     return ChatResponse(
-        intent=response.intent,
-        confidence=response.confidence,
-        human_message=result.human_message,
-        detail=result.detail,
+        reply=result.reply,
+        actions=[
+            ActionOut(tool=a.tool, ok=a.ok, detail=a.detail, error=a.error) for a in result.actions
+        ],
     )
 
 
-@app.post("/api/templates/upload")
+@app.post("/api/workspaces/{workspace_id}/templates/upload")
 async def upload_template(
-    file: UploadFile = File(...), name: str = Form(...), applies_to: str = Form(...)
+    workspace_id: str,
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    applies_to: str = Form(...),
 ) -> dict:
+    registry.require(workspace_id)
+    _entities, templates = registry.load_stores(workspace_id)
+    workspace_path = registry.path(workspace_id)
+
     tmp_dir = Path(tempfile.mkdtemp())
     tmp_path = tmp_dir / (file.filename or "template.docx")
     tmp_path.write_bytes(await file.read())
 
     known_fields = sorted({f for n in templates.names() for f in templates.get(n).fields})
-    model = os.environ.get("ASDC_MODEL", DEFAULT_MODEL)
+    model = os.environ.get("ASDC_MODEL", agent.DEFAULT_MODEL)
     try:
         template = register_docx_template(
-            tmp_path, name, applies_to, TEMPLATES_DIR, templates,
-            known_field_names=known_fields, completion_fn=lazy_openai_completion_fn(model),
+            tmp_path, name, applies_to, workspace_path / "templates", templates,
+            known_field_names=known_fields, completion_fn=_lazy_completion_fn(model),
         )
     except TemplateRegistrationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    templates.save(DATA_DIR / "available_templates.json")
+    templates.save(workspace_path / "templates.json")
     return {"name": template.name, "applies_to": template.applies_to, "fields": template.fields}
 
 

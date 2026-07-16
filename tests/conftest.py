@@ -1,3 +1,4 @@
+import shutil
 import sys
 from pathlib import Path
 
@@ -13,13 +14,19 @@ DATA_DIR = REPO_ROOT / "data"
 
 
 @pytest.fixture
-def entities() -> EntityStore:
-    return EntityStore.from_file(DATA_DIR / "workspace_entities.json")
+def entities(tmp_path: Path) -> EntityStore:
+    # Load from a copy, never the tracked file - a store.save() call during
+    # a test must not be able to mutate the real repo data.
+    copy_path = tmp_path / "workspace_entities.json"
+    shutil.copy(DATA_DIR / "workspace_entities.json", copy_path)
+    return EntityStore.from_file(copy_path)
 
 
 @pytest.fixture
-def templates() -> TemplateStore:
-    return TemplateStore.from_file(DATA_DIR / "available_templates.json")
+def templates(tmp_path: Path) -> TemplateStore:
+    copy_path = tmp_path / "available_templates.json"
+    shutil.copy(DATA_DIR / "available_templates.json", copy_path)
+    return TemplateStore.from_file(copy_path)
 
 
 @pytest.fixture

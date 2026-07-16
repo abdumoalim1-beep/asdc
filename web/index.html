@@ -433,33 +433,23 @@
     </header>
 
     <div class="thread" id="thread">
-      <div class="intro-card">
+      <div class="intro-card" id="intro-card">
         <div class="intro-top">
           <div class="avatar" style="background: var(--accent-tint); color: var(--accent-strong);">م</div>
           <div>
             <div class="intro-name">مساعد المستندات <span class="online-dot"></span></div>
-            <div class="intro-role">يفهم طلبك بالعربي وينفذه على بياناتك مباشرة</div>
+            <div class="intro-role" id="intro-role">يفهم طلبك بالعربي وينفذه على بياناتك مباشرة</div>
           </div>
         </div>
-        <p class="intro-text">
-          أهلًا عبدالمعطي، أنا مساعدك في مساحة عمل <strong id="intro-workspace-name">…</strong>. أقدر أضيف وأحدّث بيانات
-          عملائك ومنتجاتك ومؤثريك، وأولّد لك العقود وعروض الأسعار من قوالب Word حقيقية بمجرد ما تطلب مني
-          بجملة عادية — زي "غيّر سعر باقة الفعاليات" أو "جهز عقد لعميل جديد". كل مستند أسويه يطلع فورًا
-          بالشريط الجانبي، وما أنفذ أي شي إلا بعد ما أتأكد إن بياناته صحيحة وموجودة فعلًا عندك.
-        </p>
-        <div class="intro-stats">
-          <div class="stat"><span class="stat-num" id="stat-عميل">–</span><span class="stat-label">عملاء</span></div>
-          <div class="stat"><span class="stat-num" id="stat-منتج">–</span><span class="stat-label">منتجات</span></div>
-          <div class="stat"><span class="stat-num" id="stat-مؤثر">–</span><span class="stat-label">مؤثرين</span></div>
-          <div class="stat"><span class="stat-num" id="stat-files">–</span><span class="stat-label">مستندات</span></div>
+        <p class="intro-text" id="intro-text">جاري تجهيز مساحة عملك…</p>
+        <div class="intro-stats" id="intro-stats" style="display:none">
+          <div class="stat"><span class="stat-num" id="stat-عميل">٠</span><span class="stat-label">عملاء</span></div>
+          <div class="stat"><span class="stat-num" id="stat-منتج">٠</span><span class="stat-label">منتجات</span></div>
+          <div class="stat"><span class="stat-num" id="stat-مؤثر">٠</span><span class="stat-label">مؤثرين</span></div>
+          <div class="stat"><span class="stat-num" id="stat-files">٠</span><span class="stat-label">مستندات</span></div>
         </div>
-        <p class="intro-hint">جرب تبدأ بواحد من هذي، أو اسألني عن أي شي بمساحة العمل:</p>
-        <div class="suggestion-chips" id="suggestion-chips">
-          <button type="button" class="suggestion-chip" data-fill="غيّر سعر باقة الفعاليات لـ 600 ريال">غيّر سعر منتج</button>
-          <button type="button" class="suggestion-chip" data-fill="جهز عقد تقديم خدمات لشركة الرياض للتسويق">جهز عقد لعميل</button>
-          <button type="button" class="suggestion-chip" data-fill="ورّيني كل العملاء">اعرض كل العملاء</button>
-          <button type="button" class="suggestion-chip" data-fill="اشرح لي مساحة العمل والملفات الموجودة">اشرح لي مساحة العمل</button>
-        </div>
+        <p class="intro-hint" id="intro-hint"></p>
+        <div class="suggestion-chips" id="suggestion-chips"></div>
       </div>
 
       <div class="day-sep">اليوم</div>
@@ -471,7 +461,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 8.5 9.9 16a3.2 3.2 0 0 1-4.5-4.5l8-8a2.3 2.3 0 0 1 3.2 3.2l-7.6 7.6a1.3 1.3 0 0 1-1.9-1.9l6.9-6.9"/></svg>
         </button>
         <input type="file" id="template-file-input" accept=".docx" style="display:none" />
-        <input type="text" id="composer-input" placeholder="اسألني عن عملائك، أو اطلب أي تحديث أو مستند…" autocomplete="off" />
+        <input type="text" id="composer-input" placeholder="عرّفني بشركتك، أو اسألني وش أقدر أسوي…" autocomplete="off" />
         <button type="submit" class="send-btn" title="إرسال">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 20.5 21 12 3.5 3.5 3 10l12 2-12 2z"/></svg>
         </button>
@@ -509,10 +499,15 @@
   var fileInput = document.getElementById("template-file-input");
   var connDot = document.getElementById("conn-dot");
   var connLabel = document.getElementById("conn-label");
+  var introCard = document.getElementById("intro-card");
+  var introText = document.getElementById("intro-text");
+  var introHint = document.getElementById("intro-hint");
+  var introStats = document.getElementById("intro-stats");
+  var suggestionChipsEl = document.getElementById("suggestion-chips");
 
-  var history = [];
   var currentFilter = "all";
   var lastFiles = [];
+  var workspaceId = null;
 
   var STATUS_MAP = {
     "مسودة": { key: "draft", cls: "status-draft" },
@@ -520,17 +515,23 @@
     "مُرسل": { key: "sent", cls: "status-sent" },
   };
 
-  var INTENT_META = {
-    update_field: { cls: "intent-update", label: "تحديث حقل" },
+  var TOOL_META = {
     add_entity: { cls: "intent-update", label: "إضافة كيان" },
+    update_field: { cls: "intent-update", label: "تحديث حقل" },
     generate_document: { cls: "intent-generate", label: "توليد مستند" },
-    query: { cls: "intent-update", label: "استعلام" },
-    chat: { cls: "intent-chat", label: "محادثة" },
-    ambiguous: { cls: "intent-ambiguous", label: "يحتاج توضيح" },
-    unsupported: { cls: "intent-unsupported", label: "خارج النطاق" },
-    refused: { cls: "intent-danger", label: "تم الرفض" },
-    error: { cls: "intent-danger", label: "خطأ" },
+    query_entities: { cls: "intent-update", label: "استعلام" },
   };
+
+  var ONBOARDING_CHIPS = [
+    { label: "وش تقدر تسوي لي؟", fill: "وش تقدر تسوي لي بالضبط؟" },
+    { label: "عرّفني بشركتك", fill: "" },
+    { label: "ارفع أول قالب", attach: true },
+  ];
+  var ACTIVE_CHIPS = [
+    { label: "أضف عميل جديد", fill: "" },
+    { label: "اعرض كل بياناتي", fill: "ورّيني كل الكيانات الموجودة عندي" },
+    { label: "ارفع قالب جديد", attach: true },
+  ];
 
   var DOC_ICON =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7L18.5 8V20a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/><path d="M14 3.5V8h4.5"/></svg>';
@@ -594,32 +595,42 @@
     if (el) el.remove();
   }
 
-  function addAssistantMessage(intentKey, text, fileRef, errorDetail) {
-    var meta = INTENT_META[intentKey] || INTENT_META.error;
+  // actions: [{tool, ok, detail, error}] from the agent turn - zero, one, or
+  // several per reply, since the model can call more than one tool at once.
+  function addAssistantMessage(text, actions) {
+    actions = actions || [];
     var el = document.createElement("div");
     el.className = "msg assistant";
-    var fileHtml = "";
-    if (fileRef) {
-      fileHtml =
-        '<div class="inline-file">' + DOC_ICON +
-          '<div><div class="name"></div><div class="sub"></div></div>' +
-        "</div>";
-    }
-    var errHtml = errorDetail ? '<div class="error-note"></div>' : "";
+
+    var chipsHtml = actions.map(function (a) {
+      var meta = TOOL_META[a.tool] || { cls: "intent-update", label: a.tool };
+      var cls = a.ok ? meta.cls : "intent-danger";
+      var label = a.ok ? meta.label : meta.label + " · فشل";
+      return '<span class="intent-chip ' + cls + '"><span class="dot"></span>' + label + "</span>";
+    }).join(" ");
+
+    var fileCards = actions
+      .filter(function (a) { return a.ok && a.tool === "generate_document" && a.detail && a.detail.document_id; })
+      .map(function (a) {
+        return { name: a.detail.document_id + ".docx", sub: (a.detail.is_new_version ? "نسخة جديدة" : "مسودة") + " · جديد الآن" };
+      });
+    var fileHtml = fileCards.map(function (f) {
+      return '<div class="inline-file">' + DOC_ICON + '<div><div class="name">' + f.name + '</div><div class="sub">' + f.sub + "</div></div></div>";
+    }).join("");
+
+    var errors = actions.filter(function (a) { return !a.ok && a.error; }).map(function (a) { return a.error; });
+    var errHtml = errors.length ? '<div class="error-note"></div>' : "";
+
     el.innerHTML =
       '<div class="avatar">م</div>' +
       '<div class="msg-body">' +
         '<div class="msg-meta"><span class="msg-name">مساعد المستندات</span><span class="msg-time">' + nowLabel() + '</span></div>' +
-        '<span class="intent-chip ' + meta.cls + '"><span class="dot"></span>' + meta.label + '</span>' +
+        chipsHtml +
         '<div class="bubble"></div>' +
         fileHtml + errHtml +
       "</div>";
     el.querySelector(".bubble").textContent = text;
-    if (fileRef) {
-      el.querySelector(".inline-file .name").textContent = fileRef.name;
-      el.querySelector(".inline-file .sub").textContent = fileRef.sub;
-    }
-    if (errorDetail) el.querySelector(".error-note").textContent = errorDetail;
+    if (errors.length) el.querySelector(".error-note").textContent = errors.join(" · ");
     thread.appendChild(el);
     scrollToEnd();
   }
@@ -662,13 +673,46 @@
     todayCount.textContent = toArabicDigits(todayFiles);
   }
 
-  function renderStats(stats, workspaceName) {
-    document.getElementById("workspace-name").textContent = workspaceName;
-    document.getElementById("intro-workspace-name").textContent = '"' + workspaceName + '"';
+  function renderChips(list) {
+    suggestionChipsEl.innerHTML = "";
+    list.forEach(function (item) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "suggestion-chip";
+      btn.textContent = item.label;
+      btn.addEventListener("click", function () {
+        if (btn.disabled) return;
+        if (item.attach) { fileInput.click(); return; }
+        if (item.fill) { addUserMessage(item.fill); sendToServer(item.fill); }
+        else { input.focus(); }
+      });
+      suggestionChipsEl.appendChild(btn);
+    });
+  }
+
+  function renderIntro(data) {
+    document.getElementById("workspace-name").textContent = data.workspace_name;
     ["عميل", "منتج", "مؤثر"].forEach(function (key) {
       var el = document.getElementById("stat-" + key);
-      if (el) el.textContent = toArabicDigits(stats[key] || 0);
+      if (el) el.textContent = toArabicDigits(data.stats[key] || 0);
     });
+    document.getElementById("stat-files").textContent = toArabicDigits(data.files.length);
+    introStats.style.display = "flex";
+
+    if (data.is_new) {
+      introText.textContent =
+        "أهلًا! أنا مساعدك في مساحة عمل \"" + data.workspace_name + "\" — جديدة تمامًا، لسا ما فيها أي بيانات. " +
+        "عرّفني بنشاطك التجاري وابدأ اذكر لي أول عميل أو منتج بجملة عادية، أو ارفع أول قالب مستند تستخدمه " +
+        "عشان أتعرّف على حقوله المتغيرة بنفسي.";
+      introHint.textContent = "جرب تبدأ بواحد من هذي:";
+      renderChips(ONBOARDING_CHIPS);
+    } else {
+      introText.textContent =
+        "أهلًا فيك مرة ثانية في \"" + data.workspace_name + "\". أقدر أضيف وأحدّث بيانات عملائك ومنتجاتك " +
+        "ومؤثريك، وأولّد لك مستندات من قوالبك الحقيقية بمجرد ما تطلب مني بجملة عادية.";
+      introHint.textContent = "جرب تبدأ بواحد من هذي، أو اسألني عن أي شي بمساحة العمل:";
+      renderChips(ACTIVE_CHIPS);
+    }
   }
 
   function setConn(ok, label) {
@@ -677,12 +721,11 @@
   }
 
   function loadState() {
-    fetch("/api/state")
+    return fetch("/api/workspaces/" + workspaceId + "/state")
       .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
       .then(function (data) {
-        renderStats(data.stats, data.workspace_name);
+        renderIntro(data);
         renderFiles(data.files);
-        document.getElementById("stat-files").textContent = toArabicDigits(data.files.length);
         setConn(true, "متصل بالبيانات الحية");
       })
       .catch(function () {
@@ -700,44 +743,29 @@
   function sendToServer(userText) {
     setBusy(true);
     addTyping();
-    fetch("/api/chat", {
+    fetch("/api/workspaces/" + workspaceId + "/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userText, history: history }),
+      body: JSON.stringify({ message: userText }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
         removeTyping();
         setBusy(false);
+        if (!result.ok) {
+          addAssistantMessage("صار خطأ من الخادم: " + (result.data.detail || "غير معروف"), []);
+          return;
+        }
         var data = result.data;
         setConn(true, "متصل بالبيانات الحية");
-
-        var bubbleText = (data.intent === "ambiguous" && data.clarification_needed)
-          ? data.clarification_needed
-          : data.human_message;
-
-        history.push({ role: "user", content: userText });
-        history.push({ role: "assistant", content: data.human_message || "" });
-
-        var fileRef = null;
-        if (data.intent === "generate_document" && data.detail && data.detail.document_id) {
-          fileRef = {
-            name: data.detail.document_id + ".docx",
-            sub: (data.detail.is_new_version ? "نسخة جديدة" : "مسودة") + " · جديد الآن",
-          };
-        }
-
-        addAssistantMessage(data.intent, bubbleText || "بدون رد.", fileRef, data.error);
-
-        if (data.intent === "generate_document" || data.intent === "update_field" || data.intent === "add_entity") {
-          loadState();
-        }
+        addAssistantMessage(data.reply || "بدون رد.", data.actions || []);
+        if ((data.actions || []).some(function (a) { return a.ok; })) loadState();
       })
       .catch(function () {
         removeTyping();
         setBusy(false);
         setConn(false, "تعذر الاتصال بالخادم");
-        addAssistantMessage("error", "تعذر الوصول للخادم. تأكد إنه شغّال (uvicorn asdc.server:app) وحاول مرة ثانية.", null, null);
+        addAssistantMessage("تعذر الوصول للخادم. تأكد إنه شغّال (uvicorn asdc.server:app) وحاول مرة ثانية.", []);
       });
   }
 
@@ -748,15 +776,6 @@
     addUserMessage(text);
     input.value = "";
     sendToServer(text);
-  });
-
-  document.querySelectorAll(".suggestion-chip").forEach(function (chip) {
-    chip.addEventListener("click", function () {
-      if (chip.disabled) return;
-      var text = chip.getAttribute("data-fill");
-      addUserMessage(text);
-      sendToServer(text);
-    });
   });
 
   var workspacePill = document.getElementById("workspace-pill");
@@ -789,25 +808,26 @@
     form.append("name", name);
     form.append("applies_to", appliesTo);
 
-    fetch("/api/templates/upload", { method: "POST", body: form })
+    fetch("/api/workspaces/" + workspaceId + "/templates/upload", { method: "POST", body: form })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
         removeTyping();
         setBusy(false);
         if (!result.ok) {
-          addAssistantMessage("error", "تعذّر تسجيل القالب.", null, result.data.detail || "");
+          addAssistantMessage("تعذّر تسجيل القالب: " + (result.data.detail || ""), []);
           return;
         }
         var fields = result.data.fields.length ? result.data.fields.join("، ") : "ما فيه حقول";
         addAssistantMessage(
-          "generate_document",
-          "سجّلت القالب \"" + result.data.name + "\" (يُطبَّق على: " + result.data.applies_to + "). الحقول اللي تعرّفت عليها: " + fields + ". تقدر تطلب توليد مستند منه الآن."
+          "سجّلت القالب \"" + result.data.name + "\" (يُطبَّق على: " + result.data.applies_to + "). الحقول اللي تعرّفت عليها: " + fields + ". تقدر تطلب توليد مستند منه الآن.",
+          [{ tool: "generate_document", ok: true, detail: {} }]
         );
+        loadState();
       })
       .catch(function () {
         removeTyping();
         setBusy(false);
-        addAssistantMessage("error", "تعذر الوصول للخادم أثناء رفع القالب.", null, null);
+        addAssistantMessage("تعذر الوصول للخادم أثناء رفع القالب.", []);
       });
   });
 
@@ -820,6 +840,31 @@
     });
   });
 
-  loadState();
+  function createWorkspace() {
+    return fetch("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "مساحة عمل جديدة" }),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        workspaceId = data.id;
+        window.localStorage.setItem("asdc_workspace_id", workspaceId);
+      });
+  }
+
+  function ensureWorkspace() {
+    workspaceId = window.localStorage.getItem("asdc_workspace_id");
+    if (!workspaceId) return createWorkspace();
+    return fetch("/api/workspaces/" + workspaceId + "/state")
+      .then(function (res) { if (!res.ok) throw new Error("stale workspace"); })
+      .catch(function () { return createWorkspace(); });
+  }
+
+  function bootstrap() {
+    ensureWorkspace().then(loadState);
+  }
+
+  bootstrap();
 })();
 </script>

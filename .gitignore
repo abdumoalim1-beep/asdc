@@ -5,3 +5,4 @@ __pycache__/
 venv/
 documents/*.txt
 !documents/.gitkeep
+data/workspaces/
